@@ -1,25 +1,16 @@
 const express = require('express');
 const cors = require('cors');
-const mysql = require('mysql2');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+
+const dbSingleton = require('./dbSingleton');
+
+// Execute a query to the database
+const db = dbSingleton.getConnection();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-
-// חיבור למסד הנתונים
-const db = mysql.createConnection({
-  host: 'localhost',
-  user: 'root',
-  password: 'AqSw0523@', // שנה לסיסמה שלך
-  database: 'bogartfashion'
-});
-
-db.connect(err => {
-  if (err) console.error(err);
-  else console.log('Connected to MySQL');
-});
 
 // פונקציית אימות טוקן
 const authenticateToken = (req, res, next) => {
@@ -35,7 +26,8 @@ const authenticateToken = (req, res, next) => {
 
 // פונקציית בדיקת הרשאות אדמין
 const requireAdmin = (req, res, next) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+  if (req.user.role !== 'admin')
+    return res.status(403).json({ message: 'Admin only' });
   next();
 };
 
@@ -46,7 +38,8 @@ app.post('/api/register', (req, res) => {
   const sql = `INSERT INTO users (email, password, name, phone, city) VALUES (?, ?, ?, ?, ?)`;
   db.query(sql, [email, hashedPassword, name, phone, city], (err, result) => {
     if (err) {
-      if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ message: 'Email already exists' });
+      if (err.code === 'ER_DUP_ENTRY')
+        return res.status(400).json({ message: 'Email already exists' });
       return res.status(500).json({ message: 'Database error', error: err });
     }
     res.json({ message: 'User registered successfully' });
@@ -59,13 +52,19 @@ app.post('/api/login', (req, res) => {
   const sql = `SELECT * FROM users WHERE email = ?`;
   db.query(sql, [email], (err, results) => {
     if (err) return res.status(500).json({ message: 'Database error' });
-    if (results.length === 0) return res.status(401).json({ message: 'Invalid email or password' });
+    if (results.length === 0)
+      return res.status(401).json({ message: 'Invalid email or password' });
 
     const user = results[0];
     const passwordMatch = bcrypt.compareSync(password, user.password);
-    if (!passwordMatch) return res.status(401).json({ message: 'Invalid email or password' });
+    if (!passwordMatch)
+      return res.status(401).json({ message: 'Invalid email or password' });
 
-    const token = jwt.sign({ user_id: user.user_id, role: user.role }, 'secretKey', { expiresIn: '1h' });
+    const token = jwt.sign(
+      { user_id: user.user_id, role: user.role },
+      'secretKey',
+      { expiresIn: '1h' },
+    );
     res.json({ message: 'Login successful', token });
   });
 });
@@ -80,6 +79,48 @@ app.post('/api/products', authenticateToken, requireAdmin, (req, res) => {
   });
 });
 
+// ✅ API - עדכון מוצר (admin בלבד)
+
+app.put('/api/products/:id', authenticateToken, requireAdmin, (req, res) => {
+  const { name, description, price, stock, image } = req.body;
+  const sql = `UPDATE products SET name=?, description=?, price=?, stock=?, image=? WHERE product_id=?`;
+  db.query(sql, [name, description, price, stock, image, req.params.id], (err, result) => {
+    if (err) return res.status(500).json({ message: 'Database error' });
+    res.json({ message: 'Product updated successfully' });
+  });
+});
+
+// ✅ API - עדכון מוצר (admin בלבד)
+
+app.delete('/api/products/:id', authenticateToken, requireAdmin, (req, res) => {
+  const sql = `DELETE FROM products WHERE product_id=?`;
+  db.query(sql, [req.params.id], (err, result) => {
+    if (err) return res.status(500).json({ message: 'Database error' });
+    res.json({ message: 'Product deleted successfully' });
+  });
+});
+
+// ✅ עדכון מוצר לפי ID (admin בלבד)
+app.put('/api/products/:id', authenticateToken, requireAdmin, (req, res) => {
+  const { name, stock } = req.body;
+  const { id } = req.params;
+  const sql = `UPDATE products SET name = ?, stock = ? WHERE product_id = ?`;
+  db.query(sql, [name, stock, id], (err, result) => {
+    if (err) return res.status(500).json({ message: 'Database error' });
+    res.json({ message: 'Product updated successfully' });
+  });
+});
+
+// ✅ מחיקת מוצר לפי ID (admin בלבד)
+app.delete('/api/products/:id', authenticateToken, requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const sql = `DELETE FROM products WHERE product_id = ?`;
+  db.query(sql, [id], (err, result) => {
+    if (err) return res.status(500).json({ message: 'Database error' });
+    res.json({ message: 'Product deleted successfully' });
+  });
+});
+
 // ✅ API - קבלת כל המוצרים
 app.get('/api/products', (req, res) => {
   const sql = `SELECT * FROM products`;
@@ -88,6 +129,8 @@ app.get('/api/products', (req, res) => {
     res.json(results);
   });
 });
+
+
 
 // שרת מאזין
 app.listen(3001, () => {
